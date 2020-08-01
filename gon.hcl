@@ -4,7 +4,3 @@ bundle_id = "com.kevinkaz.clinvarmatcher"
 sign {
   application_identity = "Developer ID Application: Kevin Kazmierczak"
 }
-
-zip {
-  output_path = "signed.zip"
-}
