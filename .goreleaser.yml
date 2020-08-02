@@ -26,7 +26,7 @@ builds:
       post: gon gon.hcl
 archives:
 - replacements:
-    darwin: Darwin
+    darwin: OSX
     linux: Linux
     windows: Windows
     386: i386
@@ -41,3 +41,7 @@ changelog:
     exclude:
     - '^docs:'
     - '^test:'
+release:
+  draft: true
+  extra_files:
+    - glob: ./dist/clinvar-matcher-macos_darwin_amd64_signed.zip
