@@ -19,7 +19,17 @@ const (
 	SnpediaLinkPattern = "https://www.snpedia.com/index.php/%s"
 	DbSNPLinkPattern   = "https://www.ncbi.nlm.nih.gov/snp/%s"
 	ClinvarLinkPattern = "https://www.ncbi.nlm.nih.gov/clinvar/variation/%s/"
+	PassFilter         = "pass"
 )
+
+type ReportConfig struct {
+	SourceVcfPath         string
+	OutputFile            string
+	ClinvarVcfPath        string
+	ClinvarSubmissionPath string
+	IncludeAllVariants    bool
+	SaveDownloads         bool
+}
 
 // Will return the clinvar rsid first, otherwise it'll try to use the vcf id
 func getRsid(vcfFileId, clinvarRsid string) string {
@@ -29,44 +39,65 @@ func getRsid(vcfFileId, clinvarRsid string) string {
 	return vcfFileId
 }
 
-func GenerateAssessmentReport(vcfFile string, clinvarFileParam string, clinvarSubmissionsFileParam string, outputFileParam string) error {
+func isPassingVariantFilter(filter string) bool {
+	return strings.ToLower(filter) == PassFilter
+}
 
+func GenerateAssessmentReport(config ReportConfig) error {
+
+	downloads := make([]string, 0)
 	// If user did not specify clinvar VCF file, download latest
-	clinvarFile := clinvarFileParam
-	if strings.Index(clinvarFileParam, "https://") != -1 {
+	clinvarFile := config.ClinvarVcfPath
+	if strings.Index(clinvarFile, "https://") != -1 {
 		description := "Downloading Clinvar VCF"
-		localFile := path.Base(clinvarFileParam)
-		err := downloader.DownloadFile(localFile, clinvarFileParam, description)
+		localFile := path.Base(clinvarFile)
+		err := downloader.DownloadFile(localFile, clinvarFile, description)
 		if err != nil {
 			return err
 		}
+		downloads = append(downloads, localFile)
 		clinvarFile = localFile
 	}
 
 	// If user did not specify clinvar submissions file, download latest
-	clinvarSubmissionFile := clinvarSubmissionsFileParam
-	if strings.Index(clinvarSubmissionsFileParam, "https://") != -1 {
+	clinvarSubmissionFile := config.ClinvarSubmissionPath
+	if strings.Index(clinvarSubmissionFile, "https://") != -1 {
 		description := "Downloading Clinvar Submissions"
-		localFile := path.Base(clinvarSubmissionsFileParam)
-		err := downloader.DownloadFile(localFile, clinvarSubmissionsFileParam, description)
+		localFile := path.Base(clinvarSubmissionFile)
+		err := downloader.DownloadFile(localFile, clinvarSubmissionFile, description)
 		if err != nil {
 			return err
 		}
+		downloads = append(downloads, localFile)
 		clinvarSubmissionFile = localFile
 	}
 
-	return WriteAssessedVariants(vcfFile, clinvarFile, clinvarSubmissionFile, outputFileParam)
+	err := WriteAssessedVariants(config, clinvarFile, clinvarSubmissionFile)
+	if err != nil {
+		return err
+	}
+
+	if config.SaveDownloads == false {
+		for _, f := range downloads {
+			err = os.Remove(f)
+			if err != nil {
+				return err
+			}
+			log.Infof("Deleted downloaded file %s\n", f)
+		}
+	}
+	return err
 }
 
-func WriteAssessedVariants(vcfFile string, clinvarFile string, clinvarSubmissionsFile string, outputFile string) error {
-	log.Infof("Loading vcf from %s", vcfFile)
-	variants, err := vcf.ReadVcf(vcfFile)
+func WriteAssessedVariants(config ReportConfig, localClinvarVcfPath string, localSubmissionPath string) error {
+	log.Infof("Loading vcf from %s", config.SourceVcfPath)
+	variants, err := vcf.ReadVcf(config.SourceVcfPath)
 	if err != nil {
 		return err
 	}
 	log.Infof("Variant Count: %d\n", len(variants))
 
-	clinvarClient, err := clinvar.NewClinvar(clinvarFile, clinvarSubmissionsFile)
+	clinvarClient, err := clinvar.NewClinvar(localClinvarVcfPath, localSubmissionPath)
 	if err != nil {
 		return err
 	}
@@ -74,7 +105,7 @@ func WriteAssessedVariants(vcfFile string, clinvarFile string, clinvarSubmission
 	matches := 0
 	counts := make(map[string]int)
 
-	resultFile, err := os.Create(outputFile)
+	resultFile, err := os.Create(config.OutputFile)
 	if err != nil {
 		return err
 	}
@@ -87,6 +118,8 @@ func WriteAssessedVariants(vcfFile string, clinvarFile string, clinvarSubmission
 		"Begin",
 		"End",
 		"Var Type",
+		"Quality",
+		"Filter",
 		"Ref",
 		"Alt",
 		"Rsid",
@@ -111,14 +144,20 @@ func WriteAssessedVariants(vcfFile string, clinvarFile string, clinvarSubmission
 	}
 	writer.Write(header)
 
+	if config.IncludeAllVariants {
+		log.Infof("Including ALL variants, regardless of variant quality")
+	} else {
+		log.Infof("Filtering only PASSing variants based on VCF Filter")
+	}
+
 	for _, line := range variants {
 		// Quality filter
-		if strings.ToLower(line.Filter) != "pass" {
+		if config.IncludeAllVariants == false && isPassingVariantFilter(line.Filter) == false {
 			continue
 		}
 		if clinvarMatch, ok := clinvarClient.Lookup(clinvar.ToClinvarKey(line)); ok {
 			matches++
-			pathogenicity := clinvarMatch.Variant.Info["CLNSIG"]
+			pathogenicity := clinvarMatch.Variant.Info[clinvar.SignficanceKey]
 			if _, ok := counts[pathogenicity]; !ok {
 				counts[pathogenicity] = 0
 			}
@@ -133,7 +172,7 @@ func WriteAssessedVariants(vcfFile string, clinvarFile string, clinvarSubmission
 				genes = append(genes, assessment.SubmittedGeneSymbol)
 			}
 
-			rsid := getRsid(line.ID, clinvarMatch.Variant.Info["RS"])
+			rsid := getRsid(line.ID, clinvarMatch.Variant.Info[clinvar.RSIDKey])
 			snpediaLink := ""
 			dbSNPLink := ""
 			if rsid != "" {
@@ -146,7 +185,9 @@ func WriteAssessedVariants(vcfFile string, clinvarFile string, clinvarSubmission
 				line.Chrom,
 				strconv.Itoa(line.Pos),
 				strconv.Itoa(varEnd),
-				clinvarMatch.Variant.Info["CLNVC"],
+				clinvarMatch.Variant.Info[clinvar.VariantClassificationKey],
+				line.Qual,
+				line.Filter,
 				line.Ref,
 				line.Alt,
 				rsid,
@@ -165,9 +206,9 @@ func WriteAssessedVariants(vcfFile string, clinvarFile string, clinvarSubmission
 				fmt.Sprintf(ClinvarLinkPattern, clinvarMatch.Variant.ID),
 				dbSNPLink,
 				snpediaLink,
-				clinvarMatch.Variant.Info["AF_ESP"],
-				clinvarMatch.Variant.Info["AF_EXAC"],
-				clinvarMatch.Variant.Info["AF_TGP"],
+				clinvarMatch.Variant.Info[clinvar.AFEspKey],
+				clinvarMatch.Variant.Info[clinvar.AFExacKey],
+				clinvarMatch.Variant.Info[clinvar.AFTgpKey],
 			}
 			err := writer.Write(record)
 			if err != nil {
@@ -176,6 +217,6 @@ func WriteAssessedVariants(vcfFile string, clinvarFile string, clinvarSubmission
 		}
 	}
 	writer.Flush()
-	log.Infof("Wrote %d assessed variants to %s\n", matches, outputFile)
+	log.Infof("Wrote %d assessed variants to %s\n", matches, config.OutputFile)
 	return nil
 }

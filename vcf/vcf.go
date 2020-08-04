@@ -1,6 +1,7 @@
 package vcf
 
 import (
+	"archive/zip"
 	"bufio"
 	"compress/gzip"
 	"fmt"
@@ -32,23 +33,45 @@ func (vcfLine VcfLine) GetSampleData(key string) string {
 
 func ReadVcf(vcfPath string) ([]*VcfLine, error) {
 	lines := make([]*VcfLine, 0)
-
-	file, err := os.Open(vcfPath)
-	if err != nil {
-		return lines, err
-	}
-	defer file.Close()
-
 	var reader io.Reader
-	if strings.HasSuffix(vcfPath, ".gz") {
+	if strings.HasSuffix(vcfPath, "vcf.gz") {
+		file, err := os.Open(vcfPath)
+		if err != nil {
+			return lines, err
+		}
+		defer file.Close()
 		gz, err := gzip.NewReader(file)
 		if err != nil {
 			return lines, err
 		}
 		defer gz.Close()
 		reader = gz
-	} else {
+	} else if strings.HasSuffix(vcfPath, "vcf.zip") {
+		zipReader, err := zip.OpenReader(vcfPath)
+		if err != nil {
+			return lines, err
+		}
+		defer zipReader.Close()
+		// Ensure the zip only has one file and it's a VCF file
+		if len(zipReader.File) == 1 && strings.HasSuffix(zipReader.File[0].Name, "vcf") {
+			file, err := zipReader.File[0].Open()
+			if err != nil {
+				return lines, err
+			}
+			defer file.Close()
+			reader = file
+		} else {
+			return lines, fmt.Errorf("unable to locate vcf in zip")
+		}
+	} else if strings.HasSuffix(vcfPath, "vcf") {
+		file, err := os.Open(vcfPath)
+		if err != nil {
+			return lines, err
+		}
+		defer file.Close()
 		reader = file
+	} else {
+		return lines, fmt.Errorf("please supply a .vcf or .vcf.gz to read")
 	}
 
 	scanner := bufio.NewScanner(reader)
@@ -66,7 +89,7 @@ func ReadVcf(vcfPath string) ([]*VcfLine, error) {
 	if err := scanner.Err(); err != nil {
 		return lines, err
 	}
-	return lines, err
+	return lines, nil
 }
 
 func parseVcfLine(line string) (*VcfLine, error) {
