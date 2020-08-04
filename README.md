@@ -12,11 +12,11 @@ By default when it finishes, it'll delete the ClinVar source files, which are ab
 
 Run the latest release for your operating system and extract the zip. Then you can run the command in a terminal like the examples below. You can pass it your VCF directly, or it also supports reading a gzipped VCF or a plain zip that contains only your VCF, without having to extract it.
 
-If you don't want to use the latest files, you can always specify a different version with the `--clinvar-vcf` flag, for example you wanted to use a file from last year.
-
 ```
 ./clinvar-matcher my_vcf.vcf
 ```
+
+If you don't want to use the latest files, you can always specify a different version with the `--clinvar-vcf` flag, for example you wanted to use a file from last year.
 
 Full details with optional flags:
 
