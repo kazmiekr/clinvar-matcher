@@ -13,7 +13,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const SignficanceKey = "CLNSIG"
+const (
+	SignficanceKey           = "CLNSIG"
+	RSIDKey                  = "RS"
+	VariantClassificationKey = "CLNVC"
+	AFEspKey                 = "AF_ESP"
+	AFExacKey                = "AF_EXAC"
+	AFTgpKey                 = "AF_TGP"
+)
 
 type Pathogenicity int
 

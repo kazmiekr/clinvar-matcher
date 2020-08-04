@@ -19,6 +19,7 @@ const (
 	SnpediaLinkPattern = "https://www.snpedia.com/index.php/%s"
 	DbSNPLinkPattern   = "https://www.ncbi.nlm.nih.gov/snp/%s"
 	ClinvarLinkPattern = "https://www.ncbi.nlm.nih.gov/clinvar/variation/%s/"
+	PassFilter         = "pass"
 )
 
 type ReportConfig struct {
@@ -39,7 +40,7 @@ func getRsid(vcfFileId, clinvarRsid string) string {
 }
 
 func isPassingVariantFilter(filter string) bool {
-	return strings.ToLower(filter) == "pass"
+	return strings.ToLower(filter) == PassFilter
 }
 
 func GenerateAssessmentReport(config ReportConfig) error {
@@ -156,7 +157,7 @@ func WriteAssessedVariants(config ReportConfig, localClinvarVcfPath string, loca
 		}
 		if clinvarMatch, ok := clinvarClient.Lookup(clinvar.ToClinvarKey(line)); ok {
 			matches++
-			pathogenicity := clinvarMatch.Variant.Info["CLNSIG"]
+			pathogenicity := clinvarMatch.Variant.Info[clinvar.SignficanceKey]
 			if _, ok := counts[pathogenicity]; !ok {
 				counts[pathogenicity] = 0
 			}
@@ -171,7 +172,7 @@ func WriteAssessedVariants(config ReportConfig, localClinvarVcfPath string, loca
 				genes = append(genes, assessment.SubmittedGeneSymbol)
 			}
 
-			rsid := getRsid(line.ID, clinvarMatch.Variant.Info["RS"])
+			rsid := getRsid(line.ID, clinvarMatch.Variant.Info[clinvar.RSIDKey])
 			snpediaLink := ""
 			dbSNPLink := ""
 			if rsid != "" {
@@ -184,7 +185,7 @@ func WriteAssessedVariants(config ReportConfig, localClinvarVcfPath string, loca
 				line.Chrom,
 				strconv.Itoa(line.Pos),
 				strconv.Itoa(varEnd),
-				clinvarMatch.Variant.Info["CLNVC"],
+				clinvarMatch.Variant.Info[clinvar.VariantClassificationKey],
 				line.Qual,
 				line.Filter,
 				line.Ref,
@@ -205,9 +206,9 @@ func WriteAssessedVariants(config ReportConfig, localClinvarVcfPath string, loca
 				fmt.Sprintf(ClinvarLinkPattern, clinvarMatch.Variant.ID),
 				dbSNPLink,
 				snpediaLink,
-				clinvarMatch.Variant.Info["AF_ESP"],
-				clinvarMatch.Variant.Info["AF_EXAC"],
-				clinvarMatch.Variant.Info["AF_TGP"],
+				clinvarMatch.Variant.Info[clinvar.AFEspKey],
+				clinvarMatch.Variant.Info[clinvar.AFExacKey],
+				clinvarMatch.Variant.Info[clinvar.AFTgpKey],
 			}
 			err := writer.Write(record)
 			if err != nil {
