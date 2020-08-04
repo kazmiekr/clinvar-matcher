@@ -1,6 +1,6 @@
 # ClinVar-Matcher
 
-This is tool that will take in a VCF file and find all the variants that have assessment information from ClinVar. It'll download the latest files when you run it, and will output a CSV file of all your variants with assessments.
+This is a command line tool written in Go that will take in a VCF file and match up the variants with assessments from ClinVar and then output a CSV file of all your matched variants with information from the VCF and ClinVar together.
 
 ## How does this work?
 
